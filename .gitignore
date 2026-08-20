@@ -1,0 +1,3 @@
+# Runtime artifacts from scripts (tunnel.log, proxy.log, *.pid)
+*.log
+*.pid
