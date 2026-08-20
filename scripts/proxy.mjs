@@ -1,36 +1,78 @@
 #!/usr/bin/env node
 /**
- * Rewrite reverse proxy for exposing a local server through a Cloudflare
- * Tunnel when the server validates Host/Origin (browser-trust fences).
+ * Rewrite reverse proxy + one-time-password gate for exposing a local server
+ * through a Cloudflare Tunnel.
  *
- * Why this exists:
- * - Vite dev servers validate Host since CVE-2025-24010 and reject tunnel
- *   hostnames with HTTP 403 unless listed in server.allowedHosts.
- * - Custom servers (e.g. the DeepSeek Harness /api fence, isTrustedApiRequest)
- *   admit only loopback Hosts (or explicitly trusted authorities) for API and
- *   WebSocket paths.
- * - A proxy that rewrites Host but NOT Origin breaks WebSocket handshakes
- *   (RFC 6455 §10.2 — Origin must match Host when checked).
+ * Two layers, applied to EVERY request and WebSocket upgrade:
  *
- * This proxy rewrites BOTH headers: Host -> <upstream_host>:<upstream_port>
- * (loopback) and Origin -> the same authority, so both fences pass without
- * touching the served project. sec-fetch-site is left untouched — same-origin
- * requests from the tunnel page already carry `same-origin`, which fences
- * accept. WebSocket upgrades are relayed with the same rewrite.
+ * 1. Auth gate (one-time token + session cookie)
+ *    The public URL is unusable without the one-time password: requests
+ *    without a valid `?key=<TOKEN>` and without a session cookie get 401.
+ *    The FIRST request that carries the valid token consumes it (server-side
+ *    invalidation), mints a session cookie (HttpOnly, SameSite=Strict,
+ *    Secure), and 302-redirects to the clean URL (token stripped from the
+ *    URL, Referrer-Policy: no-referrer so the token does not leak through
+ *    referrers). After consumption the token is dead — mint a new link with
+ *    scripts/new-link.sh. The cookie then authorizes the browser session,
+ *    including WebSocket upgrades (browsers send cookies on the WS
+ *    handshake). Sessions and token state are in-memory: restarting the
+ *    proxy revokes everything.
  *
- * Zero dependencies (node:http only). Config via environment:
- *   UPSTREAM_HOST (default 127.0.0.1)
- *   UPSTREAM_PORT (default 3080)
- *   LISTEN_PORT   (default 3100)
+ * 2. Host/Origin rewrite (browser-trust fences)
+ *    Vite dev servers reject unknown Hosts since CVE-2025-24010; custom
+ *    servers (e.g. agent harnesses) admit only loopback Hosts for API/WS
+ *    paths. Rewriting Host -> <upstream>:<port> and Origin -> the same
+ *    authority makes both fences pass WITHOUT touching the served project.
+ *    A proxy rewriting Host but not Origin would break WebSocket handshakes
+ *    (RFC 6455 §10.2) — both are rewritten here.
+ *
+ * Zero dependencies (node:http/https). Config via environment:
+ *   UPSTREAM_HOST   (default 127.0.0.1)
+ *   UPSTREAM_PORT   (default 3080)
+ *   UPSTREAM_PROTO  (http | https, default http; https uses rejectUnauthorized:false for dev certs)
+ *   LISTEN_PORT     (default 3100)
+ *   TOKEN           (REQUIRED — the one-time password, >= 16 chars)
+ *   TOKEN_TTL_MS    (default 600000 = 10 min — token lifetime before first use)
+ *   SESSION_TTL_MS  (default 86400000 = 24 h — browser session lifetime)
  */
 
 import http from 'node:http'
+import https from 'node:https'
+import crypto from 'node:crypto'
 
 const UPSTREAM_HOST = process.env.UPSTREAM_HOST ?? '127.0.0.1'
 const UPSTREAM_PORT = Number(process.env.UPSTREAM_PORT ?? 3080)
+const UPSTREAM_PROTO = process.env.UPSTREAM_PROTO === 'https' ? 'https' : 'http'
 const LISTEN_PORT = Number(process.env.LISTEN_PORT ?? 3100)
-const REWRITTEN_AUTHORITY = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`
+const TOKEN = process.env.TOKEN ?? ''
+const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS ?? 10 * 60 * 1000)
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 24 * 60 * 60 * 1000)
+const KEY_PARAM = 'key'
+const COOKIE_NAME = '__expose_sid'
 const HEALTH_PATH = '/__expose-port-health'
+
+if (TOKEN.length < 16) {
+  console.error('[proxy] TOKEN env is required (>= 16 chars) — scripts/expose-port.sh generates it')
+  process.exit(1)
+}
+
+const transport = UPSTREAM_PROTO === 'https' ? https : http
+const REWRITTEN_AUTHORITY = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`
+const tokenBuf = Buffer.from(TOKEN)
+const sessions = new Map() // sessionId -> expiresAt (ms)
+let tokenConsumed = false
+const tokenIssuedAt = Date.now()
+
+/** Constant-time token comparison (length fixed at generation). */
+function tokenMatches(candidate) {
+  if (typeof candidate !== 'string') return false
+  const c = Buffer.from(candidate)
+  return c.length === tokenBuf.length && crypto.timingSafeEqual(c, tokenBuf)
+}
+
+function tokenUsable() {
+  return !tokenConsumed && Date.now() - tokenIssuedAt <= TOKEN_TTL_MS
+}
 
 /** Rewrite the fence-relevant headers for one request. */
 function rewriteHeaders(headers) {
@@ -40,18 +82,100 @@ function rewriteHeaders(headers) {
   return out
 }
 
+function sessionIdFrom(req) {
+  const cookie = req.headers.cookie
+  if (!cookie) return undefined
+  for (const part of cookie.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq === -1) continue
+    const [name, value] = [part.slice(0, eq).trim(), part.slice(eq + 1).trim()]
+    if (name === COOKIE_NAME) return value
+  }
+  return undefined
+}
+
+/** Whether the request carries a live session cookie. */
+function hasSession(req) {
+  const id = sessionIdFrom(req)
+  if (id === undefined) return false
+  const expiresAt = sessions.get(id)
+  if (expiresAt === undefined) return false
+  if (expiresAt > Date.now()) return true
+  sessions.delete(id)
+  return false
+}
+
+function keyFrom(urlStr) {
+  try {
+    return new URL(urlStr, 'http://proxy').searchParams.get(KEY_PARAM)
+  } catch {
+    return null
+  }
+}
+
+/** Path + query with the one-time key removed (the redirect target). */
+function stripKey(urlStr) {
+  const u = new URL(urlStr, 'http://proxy')
+  u.searchParams.delete(KEY_PARAM)
+  return u.pathname + (u.search !== '' ? u.search : '')
+}
+
+function sendUnauthorized(res) {
+  res.writeHead(401, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+  })
+  res.end('<!doctype html><meta charset="utf-8"><title>401 Unauthorized</title>'
+    + '<h1>401 Unauthorized</h1>'
+    + '<p>This link requires a one-time password. Mint a new one with '
+    + '<code>./scripts/expose-port.sh &lt;url&gt;</code> or <code>./scripts/new-link.sh</code>.</p>')
+}
+
+/** Consume the token, mint a session, and redirect to the clean URL. */
+function redeemToken(req, res) {
+  tokenConsumed = true
+  const sid = crypto.randomBytes(24).toString('base64url')
+  sessions.set(sid, Date.now() + SESSION_TTL_MS)
+  res.writeHead(302, {
+    location: stripKey(req.url),
+    'set-cookie': `${COOKIE_NAME}=${sid}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    'referrer-policy': 'no-referrer',
+    'cache-control': 'no-store',
+  })
+  res.end()
+}
+
+/** Gate: true when the request may reach the upstream. */
+function authorize(req, res) {
+  if (hasSession(req)) return true
+  const key = keyFrom(req.url)
+  if (key !== null) {
+    if (tokenMatches(key) && tokenUsable()) {
+      redeemToken(req, res)
+      return false
+    }
+    // Wrong, expired, or already-consumed token.
+    sendUnauthorized(res)
+    return false
+  }
+  sendUnauthorized(res)
+  return false
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === HEALTH_PATH) {
     res.writeHead(200, { 'content-type': 'text/plain' })
     res.end('ok')
     return
   }
-  const upstream = http.request({
+  if (!authorize(req, res)) return
+  const upstream = transport.request({
     host: UPSTREAM_HOST,
     port: UPSTREAM_PORT,
     method: req.method,
     path: req.url,
     headers: rewriteHeaders(req.headers),
+    rejectUnauthorized: false, // dev certs; the tunnel edge terminates public TLS
   }, (upRes) => {
     res.writeHead(upRes.statusCode, upRes.headers)
     upRes.pipe(res)
@@ -64,14 +188,19 @@ const server = http.createServer((req, res) => {
   req.pipe(upstream)
 })
 
-// WebSocket upgrades: relay with the same header rewrite, then bridge bytes.
+// WebSocket upgrades: same gate, then relay with the header rewrite.
 server.on('upgrade', (req, socket, head) => {
-  const upstream = http.request({
+  if (!hasSession(req)) {
+    socket.destroy()
+    return
+  }
+  const upstream = transport.request({
     host: UPSTREAM_HOST,
     port: UPSTREAM_PORT,
     method: 'GET',
     path: req.url,
     headers: rewriteHeaders(req.headers),
+    rejectUnauthorized: false,
   })
   upstream.on('upgrade', (upRes, upSocket, upHead) => {
     socket.write('HTTP/1.1 101 Switching Protocols\r\n')
@@ -93,5 +222,6 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 server.listen(LISTEN_PORT, '127.0.0.1', () => {
-  console.log(`[proxy] listening on 127.0.0.1:${LISTEN_PORT} -> ${UPSTREAM_HOST}:${UPSTREAM_PORT} (host/origin rewritten)`)
+  console.log(`[proxy] gate + rewrite listening on 127.0.0.1:${LISTEN_PORT} -> ${UPSTREAM_PROTO}://${UPSTREAM_HOST}:${UPSTREAM_PORT}`)
+  console.log(`[proxy] one-time token active, TTL ${TOKEN_TTL_MS / 1000}s, consumed=${tokenConsumed}`)
 })

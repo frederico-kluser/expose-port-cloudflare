@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Show tunnel status and run live checks through the public URL.
-# Usage: ./status.sh [local-port] [extra-path ...]
-#   [local-port]   port of the local server (for the fence probe)
-#   [extra-path]   extra paths to check through the tunnel (e.g. /api)
-#                  — a 403 here means a browser-trust fence is rejecting the
-#                  tunnel host (Host validation); the proxy should prevent it.
+#
+# NOTE: these checks NEVER consume the one-time password — the gate reports:
+#   - root without key/cookie  -> 401 (gate active — expected, not an error)
+#   - a fresh-key probe is only possible by minting a link (expose-port.sh /
+#     new-link.sh) and consuming it on first use.
+#
+# Usage: ./status.sh [extra-path ...]
+#   extra-path: app paths to probe for Host-validation fences (e.g. /api) —
+#   with a live session cookie a fence shows as 403 where the app answers
+#   404/200 locally; without a cookie the gate returns 401 for everything,
+#   so fence probing requires the browser session already open.
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
-
-PORT="${1:-}"
-shift || true
 
 echo "== processes =="
 for name in cloudflared proxy; do
@@ -20,44 +23,29 @@ for name in cloudflared proxy; do
   fi
 done
 
-echo "== proxy health =="
+echo "== proxy health (gate) =="
 curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:3100/__expose-port-health" \
   && echo "proxy: ok (127.0.0.1:3100)" || echo "proxy: DOWN"
 
 echo "== public URL =="
-URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log 2>/dev/null | tail -1 || true)"
-echo "${URL:-none yet}"
+PUBLIC_URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log 2>/dev/null | tail -1 || true)"
+echo "${PUBLIC_URL:-none yet}"
 
-if [ -z "$URL" ]; then
+if [ -z "$PUBLIC_URL" ]; then
   echo "no URL yet — tunnel not ready"
   exit 0
 fi
 
 echo "== live checks through the tunnel =="
-check() {
-  local path="$1"
-  local code
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL$path")"
-  echo "$path: HTTP $code"
-}
-check "/"
-if [ -n "$PORT" ]; then
-  # Fence probe: a 403 where the app itself answers 404/200 locally means the
-  # tunnel hostname is being rejected by Host validation (see SKILL.md §Fences).
-  local_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${PORT}/")"
+echo "root (no key, no cookie): HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$PUBLIC_URL/")   <- expect 401 (gate active)"
+if [ -f current-link ]; then
+  echo "one-time link state: present (password minted — use ./scripts/new-link.sh for another)"
+fi
+echo "root with INVALID key:  HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$PUBLIC_URL/?key=invalid-invalid-invalid")   <- expect 401"
+
+if [ "$#" -gt 0 ]; then
+  echo "extra-path probes (fence check — pass a live session cookie with -b to see through the gate):"
   for p in "$@"; do
-    tunnel_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL$p")"
-    if [ "$tunnel_code" = "403" ] && [ "$local_code" != "403" ]; then
-      echo "$p: HTTP $tunnel_code  <-- FENCE BLOCKING (403 onde o app responde $local_code localmente)"
-    else
-      echo "$p: HTTP $tunnel_code"
-    fi
+    echo "$p: HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$PUBLIC_URL$p")"
   done
 fi
-echo "websocket upgrade probe (if the app has WS, expect 101):"
-for ws in "$@"; do
-  echo "ws${ws}: HTTP $(curl -s --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
-    -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' \
-    "$URL$ws")"
-done

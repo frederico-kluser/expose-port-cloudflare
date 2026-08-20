@@ -1,3 +1,5 @@
 # Runtime artifacts from scripts (tunnel.log, proxy.log, *.pid)
 *.log
 *.pid
+# One-time password + link state (contains the active token — never commit)
+current-link
