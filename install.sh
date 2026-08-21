@@ -36,7 +36,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 SKILL_NAME="expose-port-cloudflare"
 MARKER="# added by expose-port-cloudflare install.sh"   # guard for rc edits
 

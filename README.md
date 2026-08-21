@@ -1,12 +1,14 @@
 # expose-port-cloudflare
 
-**v1.2.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a one-time password shown as a QR code in the terminal.**
+**v1.3.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a password shown as a QR code in the terminal.**
 
 No account, no domain, no changes to your project. The skill mints a random password,
 appends it to the public URL, prints the full link as a **QR code** (scan and open),
-**consumes the password on first access** (the URL is cleaned and the token dies), and
-hands the redeeming browser a secure session cookie. Anyone without the password gets
-**401** — on HTTP **and** WebSocket.
+**keeps the password valid until you revoke it** (reusable by default — a link
+preview, a second device, or a re-open can never burn it; `TOKEN_REUSE=0` restores
+single-use). Opening the link redirects to the clean URL and hands the browser a
+secure session cookie. Anyone without the password gets **401** — on HTTP **and**
+WebSocket.
 
 This is an [agent skill](SKILL.md) (Claude Code / agent-compatible) with executable
 scripts. The target is parsed smartly: `8080`, `localhost:8080`, `http://localhost:8080`
@@ -32,16 +34,17 @@ project being exposed**.
 ## Architecture
 
 ```
-Browser ── scan QR → https://*.trycloudflare.com/?key=<one-time password>
+Browser ── scan QR → https://*.trycloudflare.com/?key=<password>
              │  Cloudflare edge (TLS, HTTP/2, WebSocket via extended CONNECT)
              ▼
         cloudflared (quick tunnel, outbound-only, no account needed)
              │  http://127.0.0.1:3100
              ▼
         scripts/proxy.mjs (Node, zero deps) — on EVERY request and WS upgrade:
-          1. AUTH GATE    401 without key+cookie; valid key → consume, mint
+          1. AUTH GATE    401 without key+cookie; valid key → mint
                           HttpOnly/SameSite=Strict/Secure cookie, 302 → clean
-                          URL (key stripped, no-referrer); cookie = authorized
+                          URL (key stripped, no-referrer); key stays valid
+                          (reusable default; TOKEN_REUSE=0 burns it)
           2. REWRITE      Host + Origin → <upstream>, so fences pass
              ▼
         your local server (untouched)
@@ -53,7 +56,7 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=<one-time password>
 git clone https://github.com/frederico-kluser/expose-port-cloudflare.git
 cd expose-port-cloudflare
 ./scripts/expose-port.sh http://localhost:8080   # prints link + QR
-# ── scan with your phone — the password is consumed on first access ──
+# ── scan with your phone — the link works until you revoke it ──
 ./scripts/new-link.sh    # another password, same URL, previous sessions revoked
 ./scripts/status.sh      # live checks (401 = gate active; never burns the password)
 ./scripts/stop.sh
@@ -107,7 +110,7 @@ stop-all` (every quick tunnel + gate proxy on the machine).
 | Property | How |
 |---|---|
 | No access without the password | 401 on every path (HTTP + WS upgrade) without key/cookie |
-| Single-use password | Consumed atomically server-side on first use; re-use → 401; no expiry before first use by default (`TOKEN_TTL_MS` optional for a time limit); constant-time comparison; 256-bit random (OWASP magic-link hygiene) |
+| Reusable password (default) | Same key works for every browser until you mint a new link or restart the proxy; re-use → `302` + fresh cookie; `TOKEN_REUSE=0` restores single-use (first request burns it); no expiry before first use by default (`TOKEN_TTL_MS` optional); constant-time comparison; 256-bit random |
 | Clean URL after redemption | 302 to the key-stripped URL; `Referrer-Policy: no-referrer` on **every** response (covers Referer, history, proxy logs, network tools) |
 | Session cookie | `HttpOnly`, `SameSite=Strict` (OWASP CSRF guidance — QR scan is same-site, so strict costs nothing), `Secure`, host-scoped, 24 h, in-memory store |
 | WebSocket gate | Cookie authenticates the upgrade (RFC 6455 — the handshake is a plain GET); rejection is `401` before any frame |
@@ -121,7 +124,7 @@ stop-all` (every quick tunnel + gate proxy on the machine).
 | `GET /` (no key, no cookie) | `401` |
 | `GET /?key=invalid` | `401` |
 | `GET /?key=<real>` (first use) | `302` → clean `Location`, `Set-Cookie` (HttpOnly/SameSite=Strict/Secure), `no-referrer` |
-| Re-using the consumed key | `401` |
+| Re-using the key (default reusable) | `302` + fresh cookie |
 | `GET /` with the redeemed cookie | `200` |
 | WebSocket upgrade with cookie (`curl --http1.1`) | `101` |
 | WebSocket upgrade without cookie | rejected (socket destroyed) |
@@ -131,7 +134,8 @@ stop-all` (every quick tunnel + gate proxy on the machine).
 ## Security — read before sharing
 
 - The password **is** the gate: whoever scans the QR can use the service. It is
-  single-use — mint another link for the next person. The bare URL is useless (401).
+  reusable until you revoke it — mint another link (`new-link.sh`) to lock out the
+  old one. The bare URL is useless (401).
 - Exposing an **agent/admin/dashboard** server publicly remains high-risk (Elastic
   classifies reverse-tunnel exposure of agent-managed admin apps as high severity —
   T1572). Prefer a built preview over a dev server, and keep sessions short.

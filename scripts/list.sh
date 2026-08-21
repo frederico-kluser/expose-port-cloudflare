@@ -36,7 +36,7 @@ if [ -f current-link ]; then
   if [ -z "$state" ]; then
     echo "one-time link state: unknown (proxy DOWN)"
   else
-    desc="$(printf '%s' "$state" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);let d;if(j.consumed){d="CONSUMED — use ./scripts/new-link.sh"}else if(j.ttlMs<=0){d="unused, no expiry — ready to share"}else if(j.issuedAgoMs>j.ttlMs){d="EXPIRED — use ./scripts/new-link.sh"}else{d="unused — valid for "+Math.ceil((j.ttlMs-j.issuedAgoMs)/60000)+" more min"}console.log(d)})')"
+    desc="$(printf '%s' "$state" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);let d;if(j.reusable){d="active — same key works for any browser (reusable)"}else if(j.consumed){d="CONSUMED — use ./scripts/new-link.sh"}else if(j.ttlMs<=0){d="unused, no expiry — single-use"}else if(j.issuedAgoMs>j.ttlMs){d="EXPIRED — use ./scripts/new-link.sh"}else{d="unused — valid for "+Math.ceil((j.ttlMs-j.issuedAgoMs)/60000)+" more min"}console.log(d)})')"
     echo "one-time link state: $desc"
   fi
 else

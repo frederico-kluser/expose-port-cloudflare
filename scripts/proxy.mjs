@@ -5,18 +5,17 @@
  *
  * Two layers, applied to EVERY request and WebSocket upgrade:
  *
- * 1. Auth gate (one-time token + session cookie)
- *    The public URL is unusable without the one-time password: requests
- *    without a valid `?key=<TOKEN>` and without a session cookie get 401.
- *    The FIRST request that carries the valid token consumes it (server-side
- *    invalidation), mints a session cookie (HttpOnly, SameSite=Strict,
- *    Secure), and 302-redirects to the clean URL (token stripped from the
- *    URL, Referrer-Policy: no-referrer so the token does not leak through
- *    referrers). After consumption the token is dead — mint a new link with
- *    scripts/new-link.sh. The cookie then authorizes the browser session,
- *    including WebSocket upgrades (browsers send cookies on the WS
- *    handshake). Sessions and token state are in-memory: restarting the
- *    proxy revokes everything.
+ * 1. Auth gate (link password + session cookie)
+ *    The public URL is unusable without the password: requests without a
+ *    valid `?key=<TOKEN>` and without a session cookie get 401. A request
+ *    carrying the valid key mints a session cookie (HttpOnly, SameSite=Strict,
+ *    Secure) and 302-redirects to the clean URL (token stripped from the URL,
+ *    Referrer-Policy: no-referrer so the token does not leak through
+ *    referrers). The key is REUSABLE by default (every browser holding it gets
+ *    in; TOKEN_REUSE=0 restores single-use: the first request burns it).
+ *    The cookie authorizes the browser session, including WebSocket upgrades
+ *    (browsers send cookies on the WS handshake). Sessions and token state
+ *    are in-memory: restarting the proxy revokes everything.
  *
  * 2. Host/Origin rewrite (browser-trust fences)
  *    Vite dev servers reject unknown Hosts since CVE-2025-24010; custom
@@ -31,7 +30,10 @@
  *   UPSTREAM_PORT   (default 3080)
  *   UPSTREAM_PROTO  (http | https, default http; https uses rejectUnauthorized:false for dev certs)
  *   LISTEN_PORT     (default 3100)
- *   TOKEN           (REQUIRED — the one-time password, >= 16 chars)
+ *   TOKEN           (REQUIRED — the link password, >= 16 chars)
+ *   TOKEN_REUSE     (default 1 — the password keeps working for every browser
+ *                   until the proxy restarts or a new link is minted; set "0"
+ *                   for single-use: the first request burns the password)
  *   TOKEN_TTL_MS    (default 0 = no expiry — token lifetime before first use;
  *                   set > 0 to restore a time limit in ms)
  *   SESSION_TTL_MS  (default 86400000 = 24 h — browser session lifetime)
@@ -46,6 +48,7 @@ const UPSTREAM_PORT = Number(process.env.UPSTREAM_PORT ?? 3080)
 const UPSTREAM_PROTO = process.env.UPSTREAM_PROTO === 'https' ? 'https' : 'http'
 const LISTEN_PORT = Number(process.env.LISTEN_PORT ?? 3100)
 const TOKEN = process.env.TOKEN ?? ''
+const TOKEN_REUSE = process.env.TOKEN_REUSE !== '0' // default: reusable
 const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS ?? 0)
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 24 * 60 * 60 * 1000)
 const KEY_PARAM = 'key'
@@ -122,7 +125,10 @@ function stripKey(urlStr) {
   return u.pathname + (u.search !== '' ? u.search : '')
 }
 
-function sendUnauthorized(res) {
+function sendUnauthorized(req, res) {
+  // Path only — never log the query string (it may carry the key).
+  const path = new URL(req.url, 'http://proxy').pathname
+  console.log(`[proxy] 401 ${req.method} ${path} (no valid key, no session cookie)`)
   res.writeHead(401, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
@@ -130,15 +136,20 @@ function sendUnauthorized(res) {
   })
   res.end('<!doctype html><meta charset="utf-8"><title>401 Unauthorized</title>'
     + '<h1>401 Unauthorized</h1>'
-    + '<p>This link requires a one-time password. Mint a new one with '
+    + '<p>This link requires the password from the terminal. Mint a new link with '
     + '<code>./scripts/expose-port.sh &lt;url&gt;</code> or <code>./scripts/new-link.sh</code>.</p>')
 }
 
-/** Consume the token, mint a session, and redirect to the clean URL. */
+/**
+ * Accept the token, mint a session, and redirect to the clean URL. In reusable
+ * mode (default) the token stays valid for every browser; in single-use mode
+ * (TOKEN_REUSE=0) the first request burns it.
+ */
 function redeemToken(req, res) {
-  tokenConsumed = true
+  if (!TOKEN_REUSE) tokenConsumed = true
   const sid = crypto.randomBytes(24).toString('base64url')
   sessions.set(sid, Date.now() + SESSION_TTL_MS)
+  console.log(`[proxy] key accepted (${TOKEN_REUSE ? 'reusable' : 'single-use'}) — session minted`)
   res.writeHead(302, {
     location: stripKey(req.url),
     'set-cookie': `${COOKIE_NAME}=${sid}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
@@ -158,10 +169,10 @@ function authorize(req, res) {
       return false
     }
     // Wrong, expired, or already-consumed token.
-    sendUnauthorized(res)
+    sendUnauthorized(req, res)
     return false
   }
-  sendUnauthorized(res)
+  sendUnauthorized(req, res)
   return false
 }
 
@@ -176,6 +187,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({
       consumed: tokenConsumed,
+      reusable: TOKEN_REUSE,
       ttlMs: TOKEN_TTL_MS,
       issuedAgoMs: Date.now() - tokenIssuedAt,
     }))
@@ -245,5 +257,5 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(LISTEN_PORT, '127.0.0.1', () => {
   console.log(`[proxy] gate + rewrite listening on 127.0.0.1:${LISTEN_PORT} -> ${UPSTREAM_PROTO}://${UPSTREAM_HOST}:${UPSTREAM_PORT}`)
-  console.log(`[proxy] one-time token active, TTL ${TOKEN_TTL_MS > 0 ? `${TOKEN_TTL_MS / 1000}s` : 'unlimited (no expiry)'}, consumed=${tokenConsumed}`)
+  console.log(`[proxy] token active (${TOKEN_REUSE ? 'reusable' : 'single-use'}), TTL ${TOKEN_TTL_MS > 0 ? `${TOKEN_TTL_MS / 1000}s` : 'unlimited (no expiry)'}, consumed=${tokenConsumed}`)
 })

@@ -1,7 +1,7 @@
 ---
 name: expose-port-cloudflare
-version: "1.2.0"
-description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha de uso único — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); no primeiro acesso ela é consumida e removida da URL. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
+version: "1.3.0"
+description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); vale até você revogar (new-link.sh ou stop) e é removida da URL no primeiro acesso. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
 ---
 
 # Expose a local port online with a Cloudflare Tunnel + one-time password
@@ -13,13 +13,14 @@ public `https://*.trycloudflare.com` URL **protected by a one-time password**:
   renders a **QR code of the full link in the terminal** — the person scans and opens.
 - **Nobody without that password can access** the service (HTTP **and** WebSocket):
   requests without the key and without a session cookie get **401**.
-- **First access consumes the password** (server-side invalidation) and the browser is
-  redirected to the **clean URL** (password removed, `Referrer-Policy: no-referrer`),
-  with a secure session cookie (HttpOnly, SameSite=Strict, Secure) keeping the session
-  alive for the browser that redeemed it.
-- The password stays valid until its first use (**no expiry** by default — set
-  `TOKEN_TTL_MS` to restore a time limit); sessions last 24 h. Mint a new password any
-  time with `new-link.sh` — the public URL stays the same.
+- **The password stays valid until you revoke it** — reusable by default, so any
+  browser holding the link gets in (a link preview, a second device, or a re-open
+  can never burn it; set `TOKEN_REUSE=0` for single-use). Opening the link redirects
+  to the **clean URL** (password removed, `Referrer-Policy: no-referrer`) and mints a
+  secure session cookie (HttpOnly, SameSite=Strict, Secure) keeping the session alive.
+- **No expiry** before first use by default (`TOKEN_TTL_MS` restores a time limit);
+  sessions last 24 h. Mint a new password any time with `new-link.sh` — the public URL
+  stays the same.
 - No Cloudflare account, no domain, no DNS, no inbound firewall changes; the served
   project stays **untouched** (all support code lives next to it).
 
@@ -36,8 +37,8 @@ public `https://*.trycloudflare.com` URL **protected by a one-time password**:
 - Production exposure → use a **named tunnel** (Cloudflare account + domain) with
   **Cloudflare Access** (identity-aware auth) instead of a shared password.
 - You have no `node` — the gate proxy (zero deps, `node:http/https`) needs it.
-- The recipient needs to re-open the link repeatedly: the password is single-use; give
-  them the QR once and mint another link when needed (`new-link.sh`).
+- The recipient must be a **named person you can revoke**: whoever holds the link can
+  access until you mint a new one (`new-link.sh`) or stop the tunnel.
 
 ## Prerequisites
 
@@ -90,8 +91,9 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=…(one-time passwor
              ▼
         scripts/proxy.mjs — TWO layers, every request AND WebSocket upgrade:
         1. AUTH GATE   no key + no session cookie → 401 (WS: socket destroyed)
-                       valid key → consumed, session cookie minted,
-                                  302 → clean URL (key stripped, no-referrer)
+                       valid key → session cookie minted, 302 → clean URL
+                       (key stripped, no-referrer); key stays valid
+                       (reusable default; TOKEN_REUSE=0 burns it)
                        session cookie → authorized (incl. WS upgrades)
         2. REWRITE     Host + Origin → <upstream> (loopback), so Host-validation
                        fences (Vite CVE-2025-24010, custom /api fences) pass
@@ -102,8 +104,9 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=…(one-time passwor
 Key security properties (researched + validated end to end):
 
 - **Constant-time** token comparison (`crypto.timingSafeEqual`), 256-bit random token
-  (OWASP magic-link hygiene: ≥128-bit CSPRNG, single-use; no expiry before first use by
-  default, `TOKEN_TTL_MS` optional for a time limit).
+  (CSPRNG; **reusable** by default so a preview fetch or a re-open never locks the
+  recipient out — `TOKEN_REUSE=0` restores the single-use magic-link model; no expiry
+  before first use by default, `TOKEN_TTL_MS` optional for a time limit).
 - Cookie is **HttpOnly, SameSite=Strict, Secure**, path-scoped to the tunnel host.
   SameSite=Strict is the OWASP-recommended choice here: the QR scan is a same-site
   navigation, so strictness costs nothing and it blocks CSRF in all cross-site
@@ -111,12 +114,12 @@ Key security properties (researched + validated end to end):
   that "the most common way SameSite defenses fail in practice"). Sessions and token
   state are **in-memory** — a proxy restart revokes everything (restart the proxy =
   kill all sessions; `new-link.sh` does exactly that).
-- The token is only ever used once: the first request carrying it consumes it. After
-  that, requests with the same key get 401. `?key=` is stripped from the redirect
-  target and **every response** carries `Referrer-Policy: no-referrer` — query-string
-  tokens leak through Referer, browser history, proxy logs, and network tools, and the
-  policy plus the redirect strip covers all four vectors (OWASP Forgot Password CS /
-  CSRF CS). Responses also carry `Cache-Control: no-store`.
+- The key is stripped from the redirect target and **every response** carries
+  `Referrer-Policy: no-referrer` — query-string tokens leak through Referer, browser
+  history, proxy logs, and network tools, and the policy plus the redirect strip
+  covers all four vectors (OWASP Forgot Password CS / CSRF CS). Responses also carry
+  `Cache-Control: no-store`. In single-use mode (`TOKEN_REUSE=0`) the first request
+  with the key burns it and re-use gets 401.
 - WebSocket upgrades are rejected with **401 before any frame flows** — RFC 6455
   sanctions cookie auth on the handshake (it is a plain HTTP GET; browsers send the
   cookie automatically), so the same gate covers WS with no extra code.
@@ -128,10 +131,10 @@ Key security properties (researched + validated end to end):
 URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | tail -1)
 curl -s -o /dev/null -w "%{http_code}\n" "$URL/"                    # 401 (gate)
 curl -s -o /dev/null -w "%{http_code}\n" "$URL/?key=invalid"        # 401
-# consume a real key (print a link first, use its token), then:
+# use a real key (print a link first, use its token), then:
 curl -s -i "$URL/?key=<REAL_TOKEN>" | head -4                        # 302, clean Location,
 #  Set-Cookie HttpOnly/SameSite=Strict/Secure, Referrer-Policy: no-referrer
-curl -s -o /dev/null -w "%{http_code}\n" "$URL/?key=<REAL_TOKEN>"   # 401 (consumed)
+curl -s -o /dev/null -w "%{http_code}\n" "$URL/?key=<REAL_TOKEN>"   # 302 again (reusable default; 401 if TOKEN_REUSE=0)
 curl -s -c jar -L -o /dev/null -w "%{http_code}\n" "$URL/?key=<REAL_TOKEN>"  # 200 with cookie
 # WebSocket upgrade — MUST use --http1.1 (over HTTP/2 the edge strips
 # Connection/Upgrade headers and you get 426/502 instead of 101):
@@ -155,9 +158,10 @@ curl -s --http1.1 -b jar -o /dev/null -w "%{http_code}\n" --max-time 8 \
 
 ## Security (read before sharing the URL)
 
-- The one-time password **is** the only gate: whoever scans the QR can use the service
-  until they close the session. The URL without the password is useless (401), but the
-  password is single-use — mint another link for the next person.
+- The password **is** the only gate: whoever holds the full URL can use the service
+  until you revoke it. The URL without the password is useless (401). Mint a new link
+  (`new-link.sh`) or stop the tunnel to revoke access; anyone who had the old link is
+  locked out the moment you do.
 - Exposing an **agent/admin/dashboard** server publicly is still high-risk (Elastic
   classifies reverse-tunnel exposure of agent-managed admin apps as high severity —
   T1572); prefer exposing a built preview, not a dev server, and keep sessions short.
@@ -195,7 +199,8 @@ Docs: <https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
 | Symptom | Cause / fix |
 |---|---|
 | `/` returns **401** without key/cookie | Expected — the gate is active. That IS the protection. |
-| Key accepted once, then 401 on re-use | Correct: the password is single-use. Mint another with `new-link.sh`. |
+| 401 on a link that worked before | The proxy restarted (in-memory token/sessions gone) or a new link was minted — re-run `new-link.sh` and share the fresh link. |
+| 401 on re-use of the same key | Only in single-use mode (`TOKEN_REUSE=0`) — that is the model. The default is reusable. |
 | WS handshake returns **426/502** in tests | The test client negotiated HTTP/2 and the edge stripped upgrade headers — re-test with `curl --http1.1`. Browsers are unaffected. |
 | WS rejected with a valid session | Session cookie missing in the test client (cookies are host-scoped — use the same host + `-b jar`). Or the proxy restarted (in-memory sessions revoked). |
 | App path (e.g. `/api`) returns **403** with a live session | Host-validation fence — confirm cloudflared points at the **proxy** port (3100), not the app port. |
@@ -211,10 +216,10 @@ SKILL.md                 this file
 README.md                human-facing documentation
 install.sh               one-command global installer (skill + CLI shortcut, macOS/Linux)
 scripts/expose-port.sh   parse target, start gate proxy + quick tunnel, print link + QR
-scripts/new-link.sh      mint another one-time password on the same public URL
+scripts/new-link.sh      mint another password on the same public URL (revokes the old)
 scripts/status.sh        processes, gate health, live checks (never consumes the password)
 scripts/stop.sh          stop tunnel + proxy
 scripts/lib.sh           shared helpers: target parsing, token, QR, link state
-scripts/proxy.mjs        zero-dep gate proxy (one-time token + session cookie + Host/Origin rewrite)
+scripts/proxy.mjs        zero-dep gate proxy (link password + session cookie + Host/Origin rewrite)
 current-link             (runtime, gitignored) active host/port/token/URL — mode 600
 ```
