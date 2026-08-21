@@ -1,6 +1,6 @@
 ---
 name: expose-port-cloudflare
-version: "1.3.0"
+version: "1.3.1"
 description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); vale até você revogar (new-link.sh ou stop) e é removida da URL no primeiro acesso. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
 ---
 
@@ -18,9 +18,11 @@ public `https://*.trycloudflare.com` URL **protected by a one-time password**:
   can never burn it; set `TOKEN_REUSE=0` for single-use). Opening the link redirects
   to the **clean URL** (password removed, `Referrer-Policy: no-referrer`) and mints a
   secure session cookie (HttpOnly, SameSite=Strict, Secure) keeping the session alive.
-- **No expiry** before first use by default (`TOKEN_TTL_MS` restores a time limit);
-  sessions last 24 h. Mint a new password any time with `new-link.sh` — the public URL
-  stays the same.
+- **Nothing expires on its own**: the password is reusable and has no TTL, and
+  sessions last until the proxy restarts (`TOKEN_TTL_MS`/`SESSION_TTL_MS` restore
+  limits). The link stops working only when you revoke it (`new-link.sh`), stop the
+  tunnel (`stop`/`stop-all`), or the processes die (crash, reboot). Mint a new
+  password any time with `new-link.sh` — the public URL stays the same.
 - No Cloudflare account, no domain, no DNS, no inbound firewall changes; the served
   project stays **untouched** (all support code lives next to it).
 

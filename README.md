@@ -1,6 +1,6 @@
 # expose-port-cloudflare
 
-**v1.3.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a password shown as a QR code in the terminal.**
+**v1.3.1** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a password shown as a QR code in the terminal.**
 
 No account, no domain, no changes to your project. The skill mints a random password,
 appends it to the public URL, prints the full link as a **QR code** (scan and open),
@@ -112,7 +112,7 @@ stop-all` (every quick tunnel + gate proxy on the machine).
 | No access without the password | 401 on every path (HTTP + WS upgrade) without key/cookie |
 | Reusable password (default) | Same key works for every browser until you mint a new link or restart the proxy; re-use → `302` + fresh cookie; `TOKEN_REUSE=0` restores single-use (first request burns it); no expiry before first use by default (`TOKEN_TTL_MS` optional); constant-time comparison; 256-bit random |
 | Clean URL after redemption | 302 to the key-stripped URL; `Referrer-Policy: no-referrer` on **every** response (covers Referer, history, proxy logs, network tools) |
-| Session cookie | `HttpOnly`, `SameSite=Strict` (OWASP CSRF guidance — QR scan is same-site, so strict costs nothing), `Secure`, host-scoped, 24 h, in-memory store |
+| Session cookie | `HttpOnly`, `SameSite=Strict` (OWASP CSRF guidance — QR scan is same-site, so strict costs nothing), `Secure`, host-scoped, **no expiry by default** (lasts until the proxy restarts; `SESSION_TTL_MS` restores a limit), in-memory store |
 | WebSocket gate | Cookie authenticates the upgrade (RFC 6455 — the handshake is a plain GET); rejection is `401` before any frame |
 | No persistent secrets | Token/sessions are in-memory — restarting the proxy revokes everything |
 | Fences still pass | Host + Origin rewritten to the loopback upstream |

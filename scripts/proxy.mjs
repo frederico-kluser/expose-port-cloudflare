@@ -36,7 +36,8 @@
  *                   for single-use: the first request burns the password)
  *   TOKEN_TTL_MS    (default 0 = no expiry — token lifetime before first use;
  *                   set > 0 to restore a time limit in ms)
- *   SESSION_TTL_MS  (default 86400000 = 24 h — browser session lifetime)
+ *   SESSION_TTL_MS  (default 0 = no expiry — a redeemed session lasts until the
+ *                   proxy restarts; set > 0 to restore a limit in ms)
  */
 
 import http from 'node:http'
@@ -50,7 +51,10 @@ const LISTEN_PORT = Number(process.env.LISTEN_PORT ?? 3100)
 const TOKEN = process.env.TOKEN ?? ''
 const TOKEN_REUSE = process.env.TOKEN_REUSE !== '0' // default: reusable
 const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS ?? 0)
-const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 24 * 60 * 60 * 1000)
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 0)
+// Browser-side persistence for a session cookie (1y); server-side expiry is the
+// proxy process itself when SESSION_TTL_MS is 0.
+const SESSION_COOKIE_MAX_AGE = SESSION_TTL_MS > 0 ? Math.floor(SESSION_TTL_MS / 1000) : 31536000
 const KEY_PARAM = 'key'
 const COOKIE_NAME = '__expose_sid'
 const HEALTH_PATH = '/__expose-port-health'
@@ -148,11 +152,11 @@ function sendUnauthorized(req, res) {
 function redeemToken(req, res) {
   if (!TOKEN_REUSE) tokenConsumed = true
   const sid = crypto.randomBytes(24).toString('base64url')
-  sessions.set(sid, Date.now() + SESSION_TTL_MS)
+  sessions.set(sid, SESSION_TTL_MS > 0 ? Date.now() + SESSION_TTL_MS : Infinity)
   console.log(`[proxy] key accepted (${TOKEN_REUSE ? 'reusable' : 'single-use'}) — session minted`)
   res.writeHead(302, {
     location: stripKey(req.url),
-    'set-cookie': `${COOKIE_NAME}=${sid}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    'set-cookie': `${COOKIE_NAME}=${sid}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${SESSION_COOKIE_MAX_AGE}`,
     'referrer-policy': 'no-referrer',
     'cache-control': 'no-store',
   })
