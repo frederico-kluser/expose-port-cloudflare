@@ -1,6 +1,6 @@
 # expose-port-cloudflare
 
-**Expose any local port on the internet through a Cloudflare Tunnel — protected by a one-time password shown as a QR code in the terminal.**
+**v1.1.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a one-time password shown as a QR code in the terminal.**
 
 No account, no domain, no changes to your project. The skill mints a random password,
 appends it to the public URL, prints the full link as a **QR code** (scan and open),
@@ -62,6 +62,40 @@ cd expose-port-cloudflare
 Requirements: [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/),
 Node.js (any modern LTS; `node:http` only, no dependencies), and optionally
 [`qrencode`](https://fukuchi.org/works/qrencode/) for the terminal QR (graceful fallbacks).
+
+## Global install (macOS & Linux)
+
+One command installs the skill globally and creates a CLI shortcut named after
+the repo — then `expose-port-cloudflare <port>` works from **any folder**:
+
+```sh
+git clone https://github.com/frederico-kluser/expose-port-cloudflare.git
+cd expose-port-cloudflare
+./install.sh
+
+# from now on, anywhere:
+expose-port-cloudflare 8080               # bare port
+expose-port-cloudflare localhost:5173     # host:port
+expose-port-cloudflare https://127.0.0.1:9443/path
+```
+
+What `install.sh` does (idempotent, safe to re-run after every `git pull`, no
+`sudo`, touches nothing outside `~`):
+
+| Step | Where |
+|---|---|
+| Skill (symlink — never goes stale) | every Claude Code config dir found: `$CLAUDE_CONFIG_DIR/skills`, `~/.claude/skills`, and any `~/.claude-*/skills` (multi-account setups) |
+| CLI shortcut | `~/.local/bin/expose-port-cloudflare` → `scripts/expose-port.sh` |
+| PATH | `~/.local/bin` added to the shell rc (`.zshrc` / `.bashrc` / fish) only if missing |
+
+The skill is picked up by Claude Code at the **next session start** (restart any
+running session). Stop the tunnel from the repo folder with `./scripts/stop.sh`.
+
+```sh
+./install.sh --dry-run      # preview without changing anything
+./install.sh --uninstall    # remove skill symlinks + shortcut + rc line
+./install.sh --help
+```
 
 ## Security model
 

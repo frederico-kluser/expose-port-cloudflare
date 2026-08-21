@@ -1,5 +1,6 @@
 ---
 name: expose-port-cloudflare
+version: "1.1.0"
 description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha de uso único — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); no primeiro acesso ela é consumida e removida da URL. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
 ---
 
@@ -49,7 +50,11 @@ sudo apt install qrencode
 
 ## Execution
 
+Installed globally (via `install.sh`), the skill can be driven from any folder
+with the CLI shortcut — `expose-port-cloudflare <port>` runs the same script:
+
 ```sh
+expose-port-cloudflare http://localhost:8080   # global shortcut, any folder (or:)
 cd <sibling-folder>/expose-port-cloudflare     # this skill's folder
 ./scripts/expose-port.sh http://localhost:8080  # or: 8080 | localhost:8080 | 127.0.0.1:8080 | https://host:9443
 # -> prints the one-time access link + QR code to scan
@@ -192,6 +197,7 @@ Docs: <https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
 ```
 SKILL.md                 this file
 README.md                human-facing documentation
+install.sh               one-command global installer (skill + CLI shortcut, macOS/Linux)
 scripts/expose-port.sh   parse target, start gate proxy + quick tunnel, print link + QR
 scripts/new-link.sh      mint another one-time password on the same public URL
 scripts/status.sh        processes, gate health, live checks (never consumes the password)
