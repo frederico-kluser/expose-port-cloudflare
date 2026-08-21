@@ -83,16 +83,26 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=…(one-time passwor
         your local server (untouched)
 ```
 
-Key security properties (validated end to end):
+Key security properties (researched + validated end to end):
 
-- **Constant-time** token comparison (`crypto.timingSafeEqual`), 256-bit random token.
-- Cookie is **HttpOnly, SameSite=Strict, Secure**, path-scoped to the tunnel host;
-  sessions and token state are **in-memory** — a proxy restart revokes everything
-  (restart the proxy = kill all sessions; `new-link.sh` does exactly that).
+- **Constant-time** token comparison (`crypto.timingSafeEqual`), 256-bit random token
+  (OWASP magic-link hygiene: ≥128-bit CSPRNG, single-use, short TTL).
+- Cookie is **HttpOnly, SameSite=Strict, Secure**, path-scoped to the tunnel host.
+  SameSite=Strict is the OWASP-recommended choice here: the QR scan is a same-site
+  navigation, so strictness costs nothing and it blocks CSRF in all cross-site
+  contexts (Lax would leave any state-changing GET reachable cross-site — OWASP calls
+  that "the most common way SameSite defenses fail in practice"). Sessions and token
+  state are **in-memory** — a proxy restart revokes everything (restart the proxy =
+  kill all sessions; `new-link.sh` does exactly that).
 - The token is only ever used once: the first request carrying it consumes it. After
   that, requests with the same key get 401. `?key=` is stripped from the redirect
-  target and `Referrer-Policy: no-referrer` prevents referrer leakage; responses carry
-  `Cache-Control: no-store`.
+  target and **every response** carries `Referrer-Policy: no-referrer` — query-string
+  tokens leak through Referer, browser history, proxy logs, and network tools, and the
+  policy plus the redirect strip covers all four vectors (OWASP Forgot Password CS /
+  CSRF CS). Responses also carry `Cache-Control: no-store`.
+- WebSocket upgrades are rejected with **401 before any frame flows** — RFC 6455
+  sanctions cookie auth on the handshake (it is a plain HTTP GET; browsers send the
+  cookie automatically), so the same gate covers WS with no extra code.
 - The gate runs **before** the rewrite layer, so it covers HTTP and WebSocket equally.
 
 ## Validation (run before handing over the URL)
@@ -134,6 +144,11 @@ curl -s --http1.1 -b jar -o /dev/null -w "%{http_code}\n" --max-time 8 \
 - Exposing an **agent/admin/dashboard** server publicly is still high-risk (Elastic
   classifies reverse-tunnel exposure of agent-managed admin apps as high severity —
   T1572); prefer exposing a built preview, not a dev server, and keep sessions short.
+- Dev-server source leakage is documented, not theoretical: `@cloudflare/vite-plugin`
+  < 1.6.0 served every project-root file (including `.env`, `.dev.vars`) through the
+  dev server (CVE-2025-59427) — the gate protects access, but the served project's
+  own exposure surface (what the dev server serves) is a separate concern. Prefer a
+  **built preview** over `vite dev` for anything shared.
 - The tunnel URL **regenerates on every cloudflared restart** — always re-read it from
   `tunnel.log`; passwords minted for the old URL die with it.
 - `current-link` (mode 600, gitignored) stores the active token for `new-link.sh` —

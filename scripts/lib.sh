@@ -34,26 +34,40 @@ gen_token() {
   node -e "console.log(require('node:crypto').randomBytes(24).toString('base64url'))"
 }
 
-# Render a QR code of the full link in the terminal (SSH-safe ANSI),
-# with graceful fallbacks when qrencode is not installed.
+# Render a QR code of the full link in the terminal.
+# Renderer chain (all SSH-safe): qrencode ANSI on interactive terminals;
+# segno (pure-Python, half-block UTF-8 — survives pipes/NO_COLOR/copy-paste);
+# python3-qrcode; plain text as last resort.
 render_qr() {
   local text="$1"
-  if command -v qrencode >/dev/null 2>&1; then
+  if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && command -v qrencode >/dev/null 2>&1; then
     qrencode -t ANSIUTF8 -o - "$text"
     echo ""
     echo "   (qrencode ANSIUTF8)"
-  elif python3 -c 'import qrcode' >/dev/null 2>&1; then
-    python3 -c '
+    return
+  fi
+  if python3 -c 'import segno' >/dev/null 2>&1; then
+    python3 - "$text" <<'PY'
+import segno, sys
+segno.make(sys.argv[1]).terminal()
+PY
+    echo ""
+    echo "   (segno — half-block UTF-8)"
+    return
+  fi
+  if python3 -c 'import qrcode' >/dev/null 2>&1; then
+    python3 - "$text" <<'PY'
 import qrcode, sys
 qr = qrcode.QRCode(border=1)
 qr.add_data(sys.argv[1]); qr.make()
 qr.print_ascii(invert=True)
-' "$text"
+PY
     echo ""
     echo "   (python3-qrcode)"
-  else
-    echo "   [QR não disponível — instale qrencode: sudo apt install qrencode]"
+    return
   fi
+  echo "   [QR not available — install qrencode: sudo apt install qrencode]"
+  echo "   $text"
 }
 
 # Save the current link state for new-link.sh / status.sh (mode 600, gitignored).

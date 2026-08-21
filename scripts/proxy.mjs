@@ -124,6 +124,7 @@ function sendUnauthorized(res) {
   res.writeHead(401, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
+    'referrer-policy': 'no-referrer',
   })
   res.end('<!doctype html><meta charset="utf-8"><title>401 Unauthorized</title>'
     + '<h1>401 Unauthorized</h1>'
@@ -177,7 +178,9 @@ const server = http.createServer((req, res) => {
     headers: rewriteHeaders(req.headers),
     rejectUnauthorized: false, // dev certs; the tunnel edge terminates public TLS
   }, (upRes) => {
-    res.writeHead(upRes.statusCode, upRes.headers)
+    // no-referrer on every response: the one-time key lives in the query
+    // string and must never leak through a Referer (OWASP Forgot Password CS).
+    res.writeHead(upRes.statusCode, { ...upRes.headers, 'referrer-policy': 'no-referrer' })
     upRes.pipe(res)
   })
   upstream.on('error', (err) => {
@@ -189,9 +192,16 @@ const server = http.createServer((req, res) => {
 })
 
 // WebSocket upgrades: same gate, then relay with the header rewrite.
+// RFC 6455 sanctions cookie auth on the upgrade (the handshake is a plain
+// HTTP GET) — reject with 401 before any frame flows, per the OWASP/WS
+// guidance, rather than dropping the socket silently.
 server.on('upgrade', (req, socket, head) => {
   if (!hasSession(req)) {
-    socket.destroy()
+    socket.write('HTTP/1.1 401 Unauthorized\r\n'
+      + 'Connection: close\r\n'
+      + 'Referrer-Policy: no-referrer\r\n'
+      + 'Content-Length: 0\r\n\r\n')
+    socket.end()
     return
   }
   const upstream = transport.request({

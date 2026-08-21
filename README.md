@@ -68,10 +68,10 @@ Node.js (any modern LTS; `node:http` only, no dependencies), and optionally
 | Property | How |
 |---|---|
 | No access without the password | 401 on every path (HTTP + WS upgrade) without key/cookie |
-| Single-use password | Consumed server-side on first use; re-use → 401; 10-min TTL before first use |
-| Clean URL after redemption | 302 to the key-stripped URL + `Referrer-Policy: no-referrer` |
-| Session cookie | `HttpOnly`, `SameSite=Strict`, `Secure`, host-scoped, 24 h, in-memory store |
-| Token comparison | Constant-time (`crypto.timingSafeEqual`), 256-bit random |
+| Single-use password | Consumed atomically server-side on first use; re-use → 401; 10-min TTL before first use; constant-time comparison; 256-bit random (OWASP magic-link hygiene) |
+| Clean URL after redemption | 302 to the key-stripped URL; `Referrer-Policy: no-referrer` on **every** response (covers Referer, history, proxy logs, network tools) |
+| Session cookie | `HttpOnly`, `SameSite=Strict` (OWASP CSRF guidance — QR scan is same-site, so strict costs nothing), `Secure`, host-scoped, 24 h, in-memory store |
+| WebSocket gate | Cookie authenticates the upgrade (RFC 6455 — the handshake is a plain GET); rejection is `401` before any frame |
 | No persistent secrets | Token/sessions are in-memory — restarting the proxy revokes everything |
 | Fences still pass | Host + Origin rewritten to the loopback upstream |
 
