@@ -36,6 +36,7 @@ sleep 0.5
 
 TOKEN="$(gen_token)"
 UPSTREAM_HOST="$HOST" UPSTREAM_PORT="$PORT" UPSTREAM_PROTO="$PROTO" \
+TOKEN_TTL_MS="${TOKEN_TTL_MS:-0}" \
 TOKEN="$TOKEN" nohup node scripts/proxy.mjs > proxy.log 2>&1 &
 echo $! > proxy.pid
 

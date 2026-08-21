@@ -53,6 +53,7 @@ if [ -f proxy.pid ] && kill -0 "$(cat proxy.pid)" 2>/dev/null; then
 fi
 TOKEN="$(gen_token)"
 UPSTREAM_HOST="$HOST" UPSTREAM_PORT="$PORT" UPSTREAM_PROTO="$PROTO" \
+TOKEN_TTL_MS="${TOKEN_TTL_MS:-0}" \
 TOKEN="$TOKEN" nohup node scripts/proxy.mjs > proxy.log 2>&1 &
 echo $! > proxy.pid
 echo "gate proxy started (pid $(cat proxy.pid)) on 127.0.0.1:3100 -> ${PROTO}://${HOST}:${PORT}"

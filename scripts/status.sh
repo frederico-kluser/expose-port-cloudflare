@@ -39,7 +39,13 @@ fi
 echo "== live checks through the tunnel =="
 echo "root (no key, no cookie): HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$PUBLIC_URL/")   <- expect 401 (gate active)"
 if [ -f current-link ]; then
-  echo "one-time link state: present (password minted — use ./scripts/new-link.sh for another)"
+  state="$(curl -fsS --max-time 3 'http://127.0.0.1:3100/__expose-port-status' 2>/dev/null || true)"
+  if [ -z "$state" ]; then
+    echo "one-time link state: unknown (proxy DOWN)"
+  else
+    desc="$(printf '%s' "$state" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);let d;if(j.consumed){d="CONSUMED — use ./scripts/new-link.sh"}else if(j.ttlMs<=0){d="unused, no expiry — ready to share"}else if(j.issuedAgoMs>j.ttlMs){d="EXPIRED — use ./scripts/new-link.sh"}else{d="unused — valid for "+Math.ceil((j.ttlMs-j.issuedAgoMs)/60000)+" more min"}console.log(d)})')"
+    echo "one-time link state: $desc"
+  fi
 fi
 echo "root with INVALID key:  HTTP $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$PUBLIC_URL/?key=invalid-invalid-invalid")   <- expect 401"
 

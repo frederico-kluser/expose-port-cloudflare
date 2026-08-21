@@ -32,7 +32,8 @@
  *   UPSTREAM_PROTO  (http | https, default http; https uses rejectUnauthorized:false for dev certs)
  *   LISTEN_PORT     (default 3100)
  *   TOKEN           (REQUIRED — the one-time password, >= 16 chars)
- *   TOKEN_TTL_MS    (default 600000 = 10 min — token lifetime before first use)
+ *   TOKEN_TTL_MS    (default 0 = no expiry — token lifetime before first use;
+ *                   set > 0 to restore a time limit in ms)
  *   SESSION_TTL_MS  (default 86400000 = 24 h — browser session lifetime)
  */
 
@@ -45,11 +46,12 @@ const UPSTREAM_PORT = Number(process.env.UPSTREAM_PORT ?? 3080)
 const UPSTREAM_PROTO = process.env.UPSTREAM_PROTO === 'https' ? 'https' : 'http'
 const LISTEN_PORT = Number(process.env.LISTEN_PORT ?? 3100)
 const TOKEN = process.env.TOKEN ?? ''
-const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS ?? 10 * 60 * 1000)
+const TOKEN_TTL_MS = Number(process.env.TOKEN_TTL_MS ?? 0)
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 24 * 60 * 60 * 1000)
 const KEY_PARAM = 'key'
 const COOKIE_NAME = '__expose_sid'
 const HEALTH_PATH = '/__expose-port-health'
+const STATUS_PATH = '/__expose-port-status'
 
 if (TOKEN.length < 16) {
   console.error('[proxy] TOKEN env is required (>= 16 chars) — scripts/expose-port.sh generates it')
@@ -71,7 +73,7 @@ function tokenMatches(candidate) {
 }
 
 function tokenUsable() {
-  return !tokenConsumed && Date.now() - tokenIssuedAt <= TOKEN_TTL_MS
+  return !tokenConsumed && (TOKEN_TTL_MS <= 0 || Date.now() - tokenIssuedAt <= TOKEN_TTL_MS)
 }
 
 /** Rewrite the fence-relevant headers for one request. */
@@ -169,6 +171,16 @@ const server = http.createServer((req, res) => {
     res.end('ok')
     return
   }
+  // Loopback status for status.sh: token state only — never the token itself.
+  if (req.url === STATUS_PATH) {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      consumed: tokenConsumed,
+      ttlMs: TOKEN_TTL_MS,
+      issuedAgoMs: Date.now() - tokenIssuedAt,
+    }))
+    return
+  }
   if (!authorize(req, res)) return
   const upstream = transport.request({
     host: UPSTREAM_HOST,
@@ -233,5 +245,5 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(LISTEN_PORT, '127.0.0.1', () => {
   console.log(`[proxy] gate + rewrite listening on 127.0.0.1:${LISTEN_PORT} -> ${UPSTREAM_PROTO}://${UPSTREAM_HOST}:${UPSTREAM_PORT}`)
-  console.log(`[proxy] one-time token active, TTL ${TOKEN_TTL_MS / 1000}s, consumed=${tokenConsumed}`)
+  console.log(`[proxy] one-time token active, TTL ${TOKEN_TTL_MS > 0 ? `${TOKEN_TTL_MS / 1000}s` : 'unlimited (no expiry)'}, consumed=${tokenConsumed}`)
 })
