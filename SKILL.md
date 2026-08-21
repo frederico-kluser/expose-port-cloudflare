@@ -1,6 +1,6 @@
 ---
 name: expose-port-cloudflare
-version: "1.1.0"
+version: "1.2.0"
 description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha de uso único — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); no primeiro acesso ela é consumida e removida da URL. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
 ---
 
@@ -17,8 +17,9 @@ public `https://*.trycloudflare.com` URL **protected by a one-time password**:
   redirected to the **clean URL** (password removed, `Referrer-Policy: no-referrer`),
   with a secure session cookie (HttpOnly, SameSite=Strict, Secure) keeping the session
   alive for the browser that redeemed it.
-- The password has a **10-minute TTL** before first use; sessions last 24 h. Mint a new
-  password any time with `new-link.sh` — the public URL stays the same.
+- The password stays valid until its first use (**no expiry** by default — set
+  `TOKEN_TTL_MS` to restore a time limit); sessions last 24 h. Mint a new password any
+  time with `new-link.sh` — the public URL stays the same.
 - No Cloudflare account, no domain, no DNS, no inbound firewall changes; the served
   project stays **untouched** (all support code lives next to it).
 
@@ -51,17 +52,27 @@ sudo apt install qrencode
 ## Execution
 
 Installed globally (via `install.sh`), the skill can be driven from any folder
-with the CLI shortcut — `expose-port-cloudflare <port>` runs the same script:
+with the CLI shortcut — `expose-port-cloudflare <target>` runs the same script:
 
 ```sh
 expose-port-cloudflare http://localhost:8080   # global shortcut, any folder (or:)
+expose-port-cloudflare list                   # what is running now (read-only)
+expose-port-cloudflare stop                   # stop the tracked tunnel + proxy
+expose-port-cloudflare stop-all               # stop EVERY quick tunnel + gate proxy
 cd <sibling-folder>/expose-port-cloudflare     # this skill's folder
 ./scripts/expose-port.sh http://localhost:8080  # or: 8080 | localhost:8080 | 127.0.0.1:8080 | https://host:9443
 # -> prints the one-time access link + QR code to scan
 ./scripts/new-link.sh    # another password, same public URL (revokes previous sessions)
 ./scripts/status.sh      # live checks (401 = gate active; never consumes the password)
-./scripts/stop.sh        # stop tunnel + proxy
+./scripts/stop.sh        # stop tunnel + proxy (same as `expose-port-cloudflare stop`)
+./scripts/stop-all.sh    # stop every quick tunnel + gate proxy on the machine
+./scripts/list.sh        # same as `expose-port-cloudflare list`
 ```
+
+`list` shows the tracked instance (processes, target, public URL, one-time link
+state) plus untracked quick tunnels/proxies (other installs, orphans). `stop-all`
+kills every quick tunnel (`cloudflared tunnel --url …`) and gate proxy
+(`proxy.mjs`) on the machine — named account tunnels are never touched.
 
 The target argument is parsed smartly: a bare port, `host:port`, or a full
 `http(s)://host:port[/path]` all work. A path in the target passes through unchanged —
@@ -91,7 +102,8 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=…(one-time passwor
 Key security properties (researched + validated end to end):
 
 - **Constant-time** token comparison (`crypto.timingSafeEqual`), 256-bit random token
-  (OWASP magic-link hygiene: ≥128-bit CSPRNG, single-use, short TTL).
+  (OWASP magic-link hygiene: ≥128-bit CSPRNG, single-use; no expiry before first use by
+  default, `TOKEN_TTL_MS` optional for a time limit).
 - Cookie is **HttpOnly, SameSite=Strict, Secure**, path-scoped to the tunnel host.
   SameSite=Strict is the OWASP-recommended choice here: the QR scan is a same-site
   navigation, so strictness costs nothing and it blocks CSRF in all cross-site

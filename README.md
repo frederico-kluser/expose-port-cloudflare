@@ -1,6 +1,6 @@
 # expose-port-cloudflare
 
-**v1.1.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a one-time password shown as a QR code in the terminal.**
+**v1.2.0** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a one-time password shown as a QR code in the terminal.**
 
 No account, no domain, no changes to your project. The skill mints a random password,
 appends it to the public URL, prints the full link as a **QR code** (scan and open),
@@ -66,7 +66,7 @@ Node.js (any modern LTS; `node:http` only, no dependencies), and optionally
 ## Global install (macOS & Linux)
 
 One command installs the skill globally and creates a CLI shortcut named after
-the repo — then `expose-port-cloudflare <port>` works from **any folder**:
+the repo — then `expose-port-cloudflare` works from **any folder**:
 
 ```sh
 git clone https://github.com/frederico-kluser/expose-port-cloudflare.git
@@ -74,9 +74,12 @@ cd expose-port-cloudflare
 ./install.sh
 
 # from now on, anywhere:
-expose-port-cloudflare 8080               # bare port
-expose-port-cloudflare localhost:5173     # host:port
-expose-port-cloudflare https://127.0.0.1:9443/path
+expose-port-cloudflare 8080               # expose: bare port
+expose-port-cloudflare localhost:5173     # expose: host:port
+expose-port-cloudflare https://127.0.0.1:9443/path   # expose: full URL
+expose-port-cloudflare list               # what is running now (read-only)
+expose-port-cloudflare stop               # stop the tracked tunnel + proxy
+expose-port-cloudflare stop-all           # stop EVERY quick tunnel + gate proxy
 ```
 
 What `install.sh` does (idempotent, safe to re-run after every `git pull`, no
@@ -85,11 +88,13 @@ What `install.sh` does (idempotent, safe to re-run after every `git pull`, no
 | Step | Where |
 |---|---|
 | Skill (symlink — never goes stale) | every Claude Code config dir found: `$CLAUDE_CONFIG_DIR/skills`, `~/.claude/skills`, and any `~/.claude-*/skills` (multi-account setups) |
-| CLI shortcut | `~/.local/bin/expose-port-cloudflare` → `scripts/expose-port.sh` |
+| CLI shortcut | `~/.local/bin/expose-port-cloudflare` → `scripts/cli.sh` (dispatches expose / list / stop / stop-all) |
 | PATH | `~/.local/bin` added to the shell rc (`.zshrc` / `.bashrc` / fish) only if missing |
 
 The skill is picked up by Claude Code at the **next session start** (restart any
-running session). Stop the tunnel from the repo folder with `./scripts/stop.sh`.
+running session). Stop the tunnel from anywhere with
+`expose-port-cloudflare stop` (tracked instance) or `expose-port-cloudflare
+stop-all` (every quick tunnel + gate proxy on the machine).
 
 ```sh
 ./install.sh --dry-run      # preview without changing anything
@@ -102,7 +107,7 @@ running session). Stop the tunnel from the repo folder with `./scripts/stop.sh`.
 | Property | How |
 |---|---|
 | No access without the password | 401 on every path (HTTP + WS upgrade) without key/cookie |
-| Single-use password | Consumed atomically server-side on first use; re-use → 401; 10-min TTL before first use; constant-time comparison; 256-bit random (OWASP magic-link hygiene) |
+| Single-use password | Consumed atomically server-side on first use; re-use → 401; no expiry before first use by default (`TOKEN_TTL_MS` optional for a time limit); constant-time comparison; 256-bit random (OWASP magic-link hygiene) |
 | Clean URL after redemption | 302 to the key-stripped URL; `Referrer-Policy: no-referrer` on **every** response (covers Referer, history, proxy logs, network tools) |
 | Session cookie | `HttpOnly`, `SameSite=Strict` (OWASP CSRF guidance — QR scan is same-site, so strict costs nothing), `Secure`, host-scoped, 24 h, in-memory store |
 | WebSocket gate | Cookie authenticates the upgrade (RFC 6455 — the handshake is a plain GET); rejection is `401` before any frame |
