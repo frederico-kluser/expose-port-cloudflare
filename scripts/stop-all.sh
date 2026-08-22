@@ -4,7 +4,7 @@
 # dsh-cloudflare-tunnel setup, orphans whose pid files went stale). Named
 # (account) tunnels are NOT touched.
 #
-# Usage: ./stop-all.sh   (also: expose-port-cloudflare stop-all)
+# Usage: ./stop-all.sh   (also: expose-port-cloudflare-agent-skill stop-all)
 #
 # Matching is by exact command name (comm) plus a required argument, never by a
 # bare substring of the cmdline: a shell that merely *mentions* proxy.mjs in
@@ -44,7 +44,7 @@ if [ -n "$left" ]; then
   exit 1
 fi
 if [ "$killed" = 1 ]; then
-  echo "stopped everything — verify with: expose-port-cloudflare list"
+  echo "stopped everything — verify with: expose-port-cloudflare-agent-skill list"
 else
   echo "nothing was running"
 fi

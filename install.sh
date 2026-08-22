@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# install.sh — make the expose-port-cloudflare skill global on this machine
+# install.sh — make the expose-port-cloudflare-agent-skill skill global on this machine
 # -----------------------------------------------------------------------------
 # Two things, both idempotent and safe to re-run after every `git pull`:
 #
@@ -12,13 +12,13 @@
 #      A symlink never ages: the skill is always the version on disk, and a
 #      copy is only made when the filesystem cannot symlink (fallback).
 #
-#   2. SHORTCUT → `expose-port-cloudflare` from any folder
-#      A tiny wrapper is installed at ~/.local/bin/expose-port-cloudflare that
+#   2. SHORTCUT → `expose-port-cloudflare-agent-skill` from any folder
+#      A tiny wrapper is installed at ~/.local/bin/expose-port-cloudflare-agent-skill that
 #      execs this repo's scripts/cli.sh, which dispatches:
-#        expose-port-cloudflare <target>   expose (8080 | host:port | http(s)://…)
-#        expose-port-cloudflare list       what is running (read-only)
-#        expose-port-cloudflare stop       stop the tracked tunnel + proxy
-#        expose-port-cloudflare stop-all   stop every quick tunnel + gate proxy
+#        expose-port-cloudflare-agent-skill <target>   expose (8080 | host:port | http(s)://…)
+#        expose-port-cloudflare-agent-skill list       what is running (read-only)
+#        expose-port-cloudflare-agent-skill stop       stop the tracked tunnel + proxy
+#        expose-port-cloudflare-agent-skill stop-all   stop every quick tunnel + gate proxy
 #      ~/.local/bin is added to PATH in the shell rc only if missing.
 #
 # Works on macOS and Linux. Nothing outside ~ is touched, no sudo, and nothing
@@ -37,8 +37,8 @@
 set -euo pipefail
 
 VERSION="1.3.1"
-SKILL_NAME="expose-port-cloudflare"
-MARKER="# added by expose-port-cloudflare install.sh"   # guard for rc edits
+SKILL_NAME="expose-port-cloudflare-agent-skill"
+MARKER="# added by expose-port-cloudflare-agent-skill install.sh"   # guard for rc edits
 
 QUIET=0
 DRY_RUN=0
@@ -134,7 +134,7 @@ link_into() {
   fi
 }
 
-# --- shortcut: ~/.local/bin/expose-port-cloudflare ------------------------------
+# --- shortcut: ~/.local/bin/expose-port-cloudflare-agent-skill ------------------------------
 install_shortcut() {
   local bindir="$HOME/.local/bin" wrapper="$HOME/.local/bin/$SKILL_NAME"
   if [ "$DRY_RUN" = 1 ]; then
@@ -213,7 +213,7 @@ uninstall_all() {
 }
 
 # =============================================================================
-say "expose-port-cloudflare installer v$VERSION (skill home: $DIR)"
+say "expose-port-cloudflare-agent-skill installer v$VERSION (skill home: $DIR)"
 if [ "$UNINSTALL" = 1 ]; then
   uninstall_all
   exit 0
@@ -230,10 +230,10 @@ install_shortcut
 
 say ""
 say "Done. The skill is global — restart any running Claude Code session, then from any folder:"
-say "    expose-port-cloudflare 8080                     expose a local server"
-say "    expose-port-cloudflare list                     what is running now"
-say "    expose-port-cloudflare stop                     stop the tracked tunnel + proxy"
-say "    expose-port-cloudflare stop-all                 stop every quick tunnel + gate proxy"
+say "    expose-port-cloudflare-agent-skill 8080                     expose a local server"
+say "    expose-port-cloudflare-agent-skill list                     what is running now"
+say "    expose-port-cloudflare-agent-skill stop                     stop the tracked tunnel + proxy"
+say "    expose-port-cloudflare-agent-skill stop-all                 stop every quick tunnel + gate proxy"
 if [ "$FAILED" = 1 ]; then
   warn "One or more steps failed — see messages above (nothing was destroyed)."
   exit 1

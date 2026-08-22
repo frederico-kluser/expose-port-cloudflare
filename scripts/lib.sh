@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the expose-port-cloudflare scripts (sourced, not executed).
+# Shared helpers for the expose-port-cloudflare-agent-skill scripts (sourced, not executed).
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_LINK_FILE="$SKILL_DIR/current-link"

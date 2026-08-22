@@ -1,5 +1,5 @@
 ---
-name: expose-port-cloudflare
+name: expose-port-cloudflare-agent-skill
 version: "1.3.1"
 description: Expor uma porta ou servidor local na internet via Cloudflare Tunnel com proteção por senha — ninguém sem a senha gerada no momento acessa o conteúdo. A senha sai no terminal como QR code atrelado à URL (é só escanear); vale até você revogar (new-link.sh ou stop) e é removida da URL no primeiro acesso. Sem conta, sem domínio, sem modificar o projeto servido. Use quando alguém precisar abrir uma porta online, expor um dev server / localhost com link seguro, compartilhar um link público temporário, ou configurar um túnel Cloudflare. Passar a URL local com porta (ex: http://localhost:8080) ou só a porta (8080). Triggers: "abrir uma porta na internet", "expor o servidor local com senha", "link público protegido", "me dá um link que só quem eu quiser acessa", "túnel cloudflare", "expose local port with password", "secure public URL for localhost", "cloudflare tunnel".
 ---
@@ -55,21 +55,21 @@ sudo apt install qrencode
 ## Execution
 
 Installed globally (via `install.sh`), the skill can be driven from any folder
-with the CLI shortcut — `expose-port-cloudflare <target>` runs the same script:
+with the CLI shortcut — `expose-port-cloudflare-agent-skill <target>` runs the same script:
 
 ```sh
-expose-port-cloudflare http://localhost:8080   # global shortcut, any folder (or:)
-expose-port-cloudflare list                   # what is running now (read-only)
-expose-port-cloudflare stop                   # stop the tracked tunnel + proxy
-expose-port-cloudflare stop-all               # stop EVERY quick tunnel + gate proxy
-cd <sibling-folder>/expose-port-cloudflare     # this skill's folder
+expose-port-cloudflare-agent-skill http://localhost:8080   # global shortcut, any folder (or:)
+expose-port-cloudflare-agent-skill list                   # what is running now (read-only)
+expose-port-cloudflare-agent-skill stop                   # stop the tracked tunnel + proxy
+expose-port-cloudflare-agent-skill stop-all               # stop EVERY quick tunnel + gate proxy
+cd <sibling-folder>/expose-port-cloudflare-agent-skill     # this skill's folder
 ./scripts/expose-port.sh http://localhost:8080  # or: 8080 | localhost:8080 | 127.0.0.1:8080 | https://host:9443
 # -> prints the one-time access link + QR code to scan
 ./scripts/new-link.sh    # another password, same public URL (revokes previous sessions)
 ./scripts/status.sh      # live checks (401 = gate active; never consumes the password)
-./scripts/stop.sh        # stop tunnel + proxy (same as `expose-port-cloudflare stop`)
+./scripts/stop.sh        # stop tunnel + proxy (same as `expose-port-cloudflare-agent-skill stop`)
 ./scripts/stop-all.sh    # stop every quick tunnel + gate proxy on the machine
-./scripts/list.sh        # same as `expose-port-cloudflare list`
+./scripts/list.sh        # same as `expose-port-cloudflare-agent-skill list`
 ```
 
 `list` shows the tracked instance (processes, target, public URL, one-time link

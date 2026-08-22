@@ -1,4 +1,4 @@
-# expose-port-cloudflare
+# expose-port-cloudflare-agent-skill
 
 **v1.3.1** · **Expose any local port on the internet through a Cloudflare Tunnel — protected by a password shown as a QR code in the terminal.**
 
@@ -53,8 +53,8 @@ Browser ── scan QR → https://*.trycloudflare.com/?key=<password>
 ## Quick start
 
 ```sh
-git clone https://github.com/frederico-kluser/expose-port-cloudflare.git
-cd expose-port-cloudflare
+git clone https://github.com/frederico-kluser/expose-port-cloudflare-agent-skill.git
+cd expose-port-cloudflare-agent-skill
 ./scripts/expose-port.sh http://localhost:8080   # prints link + QR
 # ── scan with your phone — the link works until you revoke it ──
 ./scripts/new-link.sh    # another password, same URL, previous sessions revoked
@@ -69,20 +69,20 @@ Node.js (any modern LTS; `node:http` only, no dependencies), and optionally
 ## Global install (macOS & Linux)
 
 One command installs the skill globally and creates a CLI shortcut named after
-the repo — then `expose-port-cloudflare` works from **any folder**:
+the repo — then `expose-port-cloudflare-agent-skill` works from **any folder**:
 
 ```sh
-git clone https://github.com/frederico-kluser/expose-port-cloudflare.git
-cd expose-port-cloudflare
+git clone https://github.com/frederico-kluser/expose-port-cloudflare-agent-skill.git
+cd expose-port-cloudflare-agent-skill
 ./install.sh
 
 # from now on, anywhere:
-expose-port-cloudflare 8080               # expose: bare port
-expose-port-cloudflare localhost:5173     # expose: host:port
-expose-port-cloudflare https://127.0.0.1:9443/path   # expose: full URL
-expose-port-cloudflare list               # what is running now (read-only)
-expose-port-cloudflare stop               # stop the tracked tunnel + proxy
-expose-port-cloudflare stop-all           # stop EVERY quick tunnel + gate proxy
+expose-port-cloudflare-agent-skill 8080               # expose: bare port
+expose-port-cloudflare-agent-skill localhost:5173     # expose: host:port
+expose-port-cloudflare-agent-skill https://127.0.0.1:9443/path   # expose: full URL
+expose-port-cloudflare-agent-skill list               # what is running now (read-only)
+expose-port-cloudflare-agent-skill stop               # stop the tracked tunnel + proxy
+expose-port-cloudflare-agent-skill stop-all           # stop EVERY quick tunnel + gate proxy
 ```
 
 What `install.sh` does (idempotent, safe to re-run after every `git pull`, no
@@ -91,12 +91,12 @@ What `install.sh` does (idempotent, safe to re-run after every `git pull`, no
 | Step | Where |
 |---|---|
 | Skill (symlink — never goes stale) | every Claude Code config dir found: `$CLAUDE_CONFIG_DIR/skills`, `~/.claude/skills`, and any `~/.claude-*/skills` (multi-account setups) |
-| CLI shortcut | `~/.local/bin/expose-port-cloudflare` → `scripts/cli.sh` (dispatches expose / list / stop / stop-all) |
+| CLI shortcut | `~/.local/bin/expose-port-cloudflare-agent-skill` → `scripts/cli.sh` (dispatches expose / list / stop / stop-all) |
 | PATH | `~/.local/bin` added to the shell rc (`.zshrc` / `.bashrc` / fish) only if missing |
 
 The skill is picked up by Claude Code at the **next session start** (restart any
 running session). Stop the tunnel from anywhere with
-`expose-port-cloudflare stop` (tracked instance) or `expose-port-cloudflare
+`expose-port-cloudflare-agent-skill stop` (tracked instance) or `expose-port-cloudflare-agent-skill
 stop-all` (every quick tunnel + gate proxy on the machine).
 
 ```sh

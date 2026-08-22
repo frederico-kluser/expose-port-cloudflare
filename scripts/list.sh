@@ -4,7 +4,7 @@
 # found on the machine (other installs, the legacy setup, orphans). Read-only —
 # never touches processes, never consumes the one-time password.
 #
-# Usage: ./list.sh   (also: expose-port-cloudflare list)
+# Usage: ./list.sh   (also: expose-port-cloudflare-agent-skill list)
 #
 # Process matching is by exact command name (comm) plus a required argument,
 # never by a bare substring of the cmdline: a shell that merely *mentions*
